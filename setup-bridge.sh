@@ -1,17 +1,16 @@
 #!/bin/bash
 # =================================================================
-# OPSIS Bridge Networking Setup Script
-# Description: Automatically configures br0 on top of the physical interface
-# Author: Cleo (AI Assistant) for Elvis
+# OPSIS Bridge Networking Setup Script (V2 - Robust Version)
+# Description: Automatically configures br0 and binds physical IF
 # =================================================================
 
 set -e
 
 echo "🔍 Detecting network environment..."
 
-# 1. Detect the primary physical interface (excluding lo and existing bridges)
-# We look for the first interface that has an IP address or is up
-IFACE=$(ip -br link show | awk '$1 !~ /lo|br0|docker/ {print $1; exit}')
+# 1. Detect the primary physical interface
+# We skip 'lo', 'br0', 'docker', 'veth'
+IFACE=$(ip -br link show | awk '$1 !~ /lo|br0|docker|veth/ {print $1; exit}')
 
 if [ -z "$IFACE" ]; then
     echo "❌ Error: Could not detect physical interface."
@@ -23,17 +22,23 @@ MAC=$(cat /sys/class/net/"$IFACE"/address)
 echo "✅ Target Interface: $IFACE"
 echo "✅ MAC Address: $MAC"
 
-# 2. Create the Netplan configuration
-# Note: We use 99-bridge.yaml to ensure it overrides default configs
+# 2. Backup existing netplan configs to avoid conflicts
+echo "📦 Backing up existing netplan configs..."
+sudo mkdir -p /etc/netplan/backup
+sudo mv /etc/netplan/*.yaml /etc/netplan/backup/ 2>/dev/null || true
+
+# 3. Create the Netplan configuration
 echo "📝 Generating /etc/netplan/99-bridge.yaml..."
 
 sudo tee /etc/netplan/99-bridge.yaml > /dev/null <<EOF
 network:
   version: 2
+  renderer: networkd
   ethernets:
     $IFACE:
       dhcp4: false
       dhcp6: false
+      optional: true
   bridges:
     br0:
       interfaces: [$IFACE]
@@ -44,16 +49,20 @@ network:
         forward-delay: 0
 EOF
 
-# 3. Apply the configuration
+# 4. Apply the configuration
 echo "🔄 Applying Netplan configuration..."
-echo "⚠️  Note: You might lose connection briefly if you are using this interface for SSH."
-
-# Using 'netplan apply' is more forceful than 'try'
 sudo netplan apply
 
+# Give it a few seconds to settle
+sleep 2
+
 echo "-------------------------------------------------------"
-echo "🎉 Bridge Setup Complete!"
+echo "🎉 Bridge Setup Attempted!"
 echo "-------------------------------------------------------"
-echo "Current Network Status (br0):"
-ip -4 addr show br0 || echo "❌ br0 not found or no IP assigned."
+echo "Bridge Status (brctl):"
+brctl show br0
+echo ""
+echo "IP Status (br0):"
+ip -4 addr show br0 || echo "❌ No IP assigned to br0 yet."
 echo "-------------------------------------------------------"
+echo "If 'interfaces' is still empty, please check 'dmesg | grep br0'"
