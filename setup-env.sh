@@ -25,7 +25,8 @@ sudo apt-get install -y \
     qemu-system-arm \
     net-tools \
     openssh-server \
-    curl
+    curl \
+    bridge-utils
 
 # 2. Setup Google Repo Tool
 echo "🛠️ Installing Google Repo tool..."
